@@ -4,8 +4,12 @@
 work_folder="./projects"
 work_project=""
 
+# Check if the required arguments are provided
+if [[ -z "$1" ]]; then echo "git project url required"; exit 1; fi
+if [[ -z "$2" ]]; then echo "url pattern required"; exit 1; fi
+
 # Set Go environment variables
-go env -w GOPRIVATE=gitlab.stageoffice.ru
+go env -w GOPRIVATE=$2
 go env -w CGO_ENABLED=1
 
 # Install libmagic on Mac OS X if not already installed
@@ -67,10 +71,6 @@ function process_go_mod_line() {
         echo "  - $path" >> "$work_project.yaml"
     fi
 }
-
-# Check if the required arguments are provided
-if [[ -z "$1" ]]; then echo "git project url required"; exit 1; fi
-if [[ -z "$2" ]]; then echo "url pattern required"; exit 1; fi
 
 # Process the Git path and extract the work project
 path_part=$(process_git_path "$1")

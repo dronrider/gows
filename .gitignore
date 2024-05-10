@@ -1,0 +1,4 @@
+projects
+*.code-workspace
+*.lock
+*.work*

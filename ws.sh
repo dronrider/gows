@@ -1,38 +1,37 @@
-#!/bin/bash
+#!/usr/bin/env bash
+
+Version="0.0.0"
 
 # Set the folder for the projects
-work_folder="./projects"
+work_folder="./"
 work_project=""
 
-# Check if the required arguments are provided
-if [[ -z "$1" ]]; then echo "git project url required"; exit 1; fi
-if [[ -z "$2" ]]; then echo "url pattern required"; exit 1; fi
+CO='\033[0m' # color off
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+RED='\033[0;31m'
 
-# Set Go environment variables
-go env -w GOPRIVATE=$2
-go env -w CGO_ENABLED=1
+unset -v url
+unset -v env
+unset -v dest
 
-# Install libmagic on Mac OS X if not already installed
-if [[ ! -f ./install.lock ]]; then
-    if [[ "$(uname)" == "Darwin" ]]; then # Mac OS X
-        brew install libmagic
-        brew link libmagic
-        go env -w CGO_CFLAGS=-I/opt/homebrew/include
-        go env -w CGO_LDFLAGS=-L/opt/homebrew/lib
-    fi
-    date '+%d/%m/%Y %H:%M:%S' > install.lock
-else
-    echo "skip install, install.lock created $(cat install.lock)"
-fi
+function show_help() {
+  echo "Usage: $(basename $0) [h|v|u|e|d]"
+  echo "Options:"
+  echo "  -h, --help     Display this help message"
+  echo "  -v, --version  Display version information"
+  echo "  -u, --url      SSH URL to git progect"
+  echo "  -e, --env      Path to file - bash script"
+  echo "  -d, --dest     Path to destination dir"
 
-# Initialize Go workspace
-go work init
+  exit 1
+}
 
 # Function to clone a project repository
 function clone_project() {
     local host=$1 group=$2 project=$3
     if [[ -n "$host" && -n "$group" && -n "$project" ]]; then
-        local dir="$work_folder/$group/$project"
+        local dir="$projects_folder/$group/$project"
         if [[ ! -d "$dir" || -z "$(ls -A "$dir")" ]]; then
             mkdir -p "$dir"
             git clone "git@${host}:${group}/${project}.git" "$dir"
@@ -42,28 +41,25 @@ function clone_project() {
 
 # Function to process the Git path and clone the project
 function process_git_path() {
-    IFS='@:/' read -ra parts <<< "$1"
+    IFS='@:/' read -ra parts <<< "$url"
     local host="${parts[1]}" group="${parts[2]}" project="${parts[3]%%.*}"
     clone_project "$host" "$group" "$project"
-    echo "$work_folder/$group/$project"
+    echo "$group/$project"
 }
-
-# Associative array to keep track of processed paths
-declare -A processed_paths
 
 # Function to process a line from go.mod file
 function process_go_mod_line() {
     local path=$(echo "$1" | sed -E 's| v[0-9]+(\.[0-9]+)*.*||' | sed -E 's|/v[0-9]+||' | xargs)
-    if [[ -z "${processed_paths[$path]}" ]]; then
+    echo -e "path: ${path}"
+    if [[ -z "${processed_paths["$path"]}" ]]; then
         IFS='/' read -ra parts <<< "$path"
         local host="${parts[0]}" group="${parts[1]}" project="${parts[2]}" submodule="${parts[3]}"
-
         clone_project "$host" "$group" "$project"
 
         if [[ -z "$submodule" ]]; then
-            echo "replace $path => $work_folder/$group/$project" >> go.work
+            echo "replace $path => $projects_folder/$group/$project" >> $work_folder/go.work
         else
-            echo "replace $path => $work_folder/$group/$project/$submodule" >> go.work
+            echo "replace $path => $projects_folder/$group/$project/$submodule" >> $work_folder/go.work
         fi
 
         processed_paths[$path]=1
@@ -72,18 +68,65 @@ function process_go_mod_line() {
     fi
 }
 
+while getopts ":hv:u:e:d:" opt; do
+  case $opt in
+    h) show_help ;;
+    v) 
+        echo $Version 
+        exit ;;
+    u) url=$OPTARG ;;
+    e) env=$OPTARG ;;
+    d) dest=$OPTARG ;;
+    \?) show_help ;;
+  esac
+done
+
+# Check if the requiRED arguments are provided
+if [[ -z "$url" ]]; then echo -e "${RED}git project url requiRED${CO}"; exit 1; fi
+
+if [ -f "$env" ]; then
+    echo -e "${GREEN}Found additional env file, executing...${CO}"
+    sh $env
+fi
+
+if [ ! -z "$dest" ]; then
+    work_folder=$dest
+fi
+
+projects_folder="${work_folder}/projects"
+internal_host=$(echo $url | sed 's/.*@\(.*\):.*/\1/')
+
+echo -e "\n${YELLOW}Folders: ${CO}"
+echo -e "${YELLOW}work dir: $work_folder ${CO}"
+echo -e "${YELLOW}projects dir: $projects_folder ${CO}"
+echo -e "${YELLOW}host for internal packages: $internal_host  ${CO}"
+echo -e "${YELLOW}git URL: $url  ${CO}\n"
+
+# Associative array to keep track of processed paths
+declare -A processed_paths
+
+# Initialize Go workspace to the work directory
+echo -e "${GREEN}Step 1/5: Goint to the work directory, init go work... ${CO}"
+cd $work_folder
+go work init
+
 # Process the Git path and extract the work project
+echo -e "${GREEN}Step 2/5: Parsing getting project URL, cloning to the projects folder... ${CO}"
 path_part=$(process_git_path "$1")
+echo -e "generated project tree: $path_part"
+
+echo -e "${GREEN}Step 3/5: Create project's deps file... ${CO}"
 IFS='/' read -ra parts <<< "$path_part"
 mkdir -p "$work_folder/deps"
-work_project="${work_folder}/deps/${parts[2]}-${parts[3]}"
-
-# Set the go.mod path based on the provided argument or default to the project path
-go_mod_path=${3:-$path_part}
-
+work_project="${work_folder}/deps/${parts[0]}-${parts[1]}"
 # Create the YAML file for the service dependencies
 echo "dependencies:" > "$work_project.yaml"
+echo -e "created dependencies file: "$work_project.yaml""
 
+echo -e "${GREEN}Step 4/5: Walking to project's go.mod file and download internal deps... ${CO}"
+# Set the go.mod path based on the provided argument or default to the project path
+go_mod_path=$projects_folder/$path_part
+echo -e "path to go.mod: $go_mod_path"
 # Process the go.mod file and clone the required projects
 start=0
 while IFS= read -r line; do
@@ -95,7 +138,7 @@ while IFS= read -r line; do
     esac
 
     if [[ $start -eq 1 ]]; then
-        [[ $line != *"$2"* ]] && continue
+        [[ $line != *"$internal_host"* ]] && continue
         process_go_mod_line "$line"
     fi
 
@@ -103,5 +146,6 @@ while IFS= read -r line; do
 done < "$go_mod_path/go.mod"
 
 # Use the Go workspace and sync dependencies
+echo -e "${GREEN}Step 5/5: Executing go work... ${CO}"
 go work use "$go_mod_path"
 go work sync

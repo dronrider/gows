@@ -2,3 +2,6 @@ projects
 *.code-workspace
 *.lock
 *.work*
+.DS_Store
+deps
+.trunk

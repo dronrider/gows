@@ -93,7 +93,7 @@ if [ ! -z "$dest" ]; then
     work_folder=$dest
 fi
 
-projects_folder="${work_folder}/projects"
+projects_folder="${work_folder}projects"
 internal_host=$(echo $url | sed 's/.*@\(.*\):.*/\1/')
 
 echo -e "\n${YELLOW}Folders: ${CO}"
